@@ -1,0 +1,28 @@
+{
+  "name": "promised-hal",
+  "version": "0.1.0",
+  "description": "Simplifies communication with HAL enabled servers using promises.",
+  "main": "lib/hal.js",
+  "scripts": {
+    "docs": "./node_modules/.bin/jsdoc --configure jsdoc.json --verbose"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fraunhoferfokus/promised-hal.git"
+  },
+  "keywords": [
+    "hal",
+    "api",
+    "promise"
+  ],
+  "author": "Yan Foto",
+  "license": "AGPL-3.0",
+  "bugs": {
+    "url": "https://github.com/fraunhoferfokus/promised-hal/issues"
+  },
+  "homepage": "https://github.com/fraunhoferfokus/promised-hal#readme",
+  "devDependencies": {
+    "jsdoc": "^3.4.2",
+    "minami": "^1.1.1"
+  }
+}
