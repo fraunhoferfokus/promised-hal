@@ -23,7 +23,7 @@
 <label for="nav-trigger" class="overlay"></label>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="HAL.html">HAL</a><ul class='methods'><li data-type='method'><a href="HAL.html#_change">_change</a></li><li data-type='method'><a href="HAL.html#_fetchEmbeddeds">_fetchEmbeddeds</a></li><li data-type='method'><a href="HAL.html#_request">_request</a></li><li data-type='method'><a href="HAL.html#associate">associate</a></li><li data-type='method'><a href="HAL.html#auth">auth</a></li><li data-type='method'><a href="HAL.html#body">body</a></li><li data-type='method'><a href="HAL.html#DELETE">DELETE</a></li><li data-type='method'><a href="HAL.html#embedded">embedded</a></li><li data-type='method'><a href="HAL.html#follow">follow</a></li><li data-type='method'><a href="HAL.html#GET">GET</a></li><li data-type='method'><a href="HAL.html#link">link</a></li><li data-type='method'><a href="HAL.html#PATCH">PATCH</a></li><li data-type='method'><a href="HAL.html#POST">POST</a></li><li data-type='method'><a href="HAL.html#PUT">PUT</a></li></ul></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="HAL.html">HAL</a><ul class='methods'><li data-type='method'><a href="HAL.html#_change">_change</a></li><li data-type='method'><a href="HAL.html#_fetchEmbeddeds">_fetchEmbeddeds</a></li><li data-type='method'><a href="HAL.html#_request">_request</a></li><li data-type='method'><a href="HAL.html#associate">associate</a></li><li data-type='method'><a href="HAL.html#auth">auth</a></li><li data-type='method'><a href="HAL.html#body">body</a></li><li data-type='method'><a href="HAL.html#DELETE">DELETE</a></li><li data-type='method'><a href="HAL.html#embedded">embedded</a></li><li data-type='method'><a href="HAL.html#follow">follow</a></li><li data-type='method'><a href="HAL.html#GET">GET</a></li><li data-type='method'><a href="HAL.html#link">link</a></li><li data-type='method'><a href="HAL.html#PATCH">PATCH</a></li><li data-type='method'><a href="HAL.html#POST">POST</a></li><li data-type='method'><a href="HAL.html#PUT">PUT</a></li></ul></li><li><a href="HALError.html">HALError</a></li></ul>
 </nav>
 
 <div id="main">
@@ -41,7 +41,10 @@
             <pre class="prettyprint source linenums"><code>'use strict'
 
 const http = require('http')
+const https = require('https')
 const url = require('url')
+
+const HALError = require('./hal-error')
 
 /**
  * Represents a HAL ressource and simplifies its manipulation.
@@ -88,19 +91,30 @@ class HAL {
   _request (method, headers) {
     return new Promise((resolve, reject) => {
       let body = ''
+      let secure = this.URL.protocol.toUpperCase().startsWith('HTTPS')
+      let client = secure ? https : http
+      let defaultPort = secure ? 443 : 80
 
-      let req = http.request({
+      let req = client.request({
         auth: this.credentials,
         protocol: this.URL.protocol,
         hostname: this.URL.hostname,
-        port: this.URL.port || 80,
-        path: `${this.URL.path}?${this.URL.query || ''}`,
+        port: this.URL.port || defaultPort,
+        path: this.URL.path,
         method: method,
         headers: Object.assign(HAL.DEFAULTHEADERS, headers)
       }, res => {
         res.on('data', data => { body += data })
         res.on('end', () => {
-          this.content = (body === '') ? {} : JSON.parse(body)
+          if (body === '') {
+            this.content = {}
+          } else {
+            try {
+              this.content = JSON.parse(body)
+            } catch (e) {
+              reject(new HALError('Could not parse response!', HALError.ERROR_CODES.RESPONSE))
+            }
+          }
           resolve({
             body: this.content,
             response: res
@@ -108,10 +122,10 @@ class HAL {
         })
       })
 
-      if ((HAL.MODMETHODS.indexOf(method) > 0) &amp;&amp; this.content) {
+      if ((HAL.MODMETHODS.indexOf(method) >= 0) &amp;&amp; this.content) {
         req.write(JSON.stringify(this.content))
       }
-      req.on('error', reject)
+      req.on('error', err => reject(new HALError(err.message, HALError.ERROR_CODES.REQUEST)))
       req.end()
     })
   }
@@ -126,11 +140,16 @@ class HAL {
   _change (method, headers) {
     return new Promise((resolve, reject) => {
       if (HAL.MODMETHODS.indexOf(method.toUpperCase()) &lt; 0) {
-        return reject(new Error(`Method ${method} is invalid! (only PUT and POST)`))
+        return reject(new HALError(`Method ${method} is invalid! (only PUT and POST)`, HALError.ERROR_CODES.REQUEST))
       }
 
       this._request(method, headers)
         .then(result => {
+          let statusCode = result.response.statusCode
+          if (statusCode >= 400) {
+            return reject(new HALError(`Server not succeeded! (error ${statusCode})`, HALError.ERROR_CODES.RESPONSE))
+          }
+
           this.content = Object.assign(result.body, this.content)
           this.URL = url.parse(this.link('self').href)
           resolve(this)
@@ -263,7 +282,7 @@ class HAL {
   follow (link, depth) {
     return new Promise((resolve, reject) => {
       let linkObject = this.link(link)
-      if (!linkObject) return reject(new Error(`Link ${link} does not exist!`))
+      if (!linkObject) return reject(new HALError(`Link ${link} does not exist!`))
 
       this.URL = url.parse(linkObject.href)
       this.GET(depth).then(resolve).catch(reject)
@@ -291,6 +310,9 @@ class HAL {
    * The key is in dot notation, e.g. 'statuses.2.numericValue' would look
    * under embedded sensors, the second item, and finally its numericValue field.
    *
+   * NOTE: if at any part of the chain, the given key is not found, the result
+   * would explicitly be 'null' and no errors are thrown.
+   *
    * @param {String} key of embedded item (in dot notation)
    * @return {Object} embedded item
    */
@@ -298,7 +320,7 @@ class HAL {
     return key
       .split('.')
       .map(item => parseInt(item, 10) || item)
-      .reduce((prev, cur) => prev[cur], this.content['_embedded'])
+      .reduce((prev, cur) => prev ? prev[cur] : null, this.content['_embedded'])
   }
 }
 // Default headers passed along each request
@@ -329,7 +351,7 @@ module.exports = HAL
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.4.2</a> on Wed Oct 26 2016 14:07:58 GMT+0200 (CEST) using the Minami theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.4.2</a> on Wed Apr 12 2017 10:40:49 GMT+0200 (CEST) using the Minami theme.
 </footer>
 
 <script>prettyPrint();</script>
