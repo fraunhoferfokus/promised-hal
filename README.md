@@ -15,7 +15,7 @@ user.GET()
   .catch(err => console.error(err))
 
 // Update that user
-user.content({name: 'Yan Foto'})
+user.body({name: 'Yan Foto'})
   .PUT()
   .then(updated => console.log(updated))
   .catch(err => console.error(err))
